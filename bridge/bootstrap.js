@@ -24,8 +24,22 @@ async function startup({rootURI}) {
   if (!c || c.deleted) throw Error('Managed collection unavailable');return c;
  }
  function itemResult(item) {return {key:item.key,uri:Zotero.URI.getItemURI(item),library_id:Zotero.Users.getCurrentUserID()||'local',title:item.getField('title')};}
+ async function readingCollections(d,parent) {
+  const maps=JSON.parse(Zotero.Prefs.get('lit2zotero.readingCollections',true)||'{}');
+  const own=maps[d.project_id]||{};const result={};
+  for(const [kind,name] of [['required','需要PDF'],['not_required','不需要PDF']]) {
+   let child=own[kind]?Zotero.Collections.getByLibraryAndKey(Zotero.Libraries.userLibraryID,own[kind]):null;
+   if(own[kind]&&(!child||child.deleted||child.parentID!==parent.id))throw Error('Managed reading collection missing or moved');
+   if(!child) {
+    child=new Zotero.Collection();child.libraryID=parent.libraryID;child.name=name;child.parentID=parent.id;await child.saveTx();
+    own[kind]=child.key;maps[d.project_id]=own;Zotero.Prefs.set('lit2zotero.readingCollections',JSON.stringify(maps),true);
+   }
+   result[kind]=child;
+  }
+  return result;
+ }
  async function execute(d) {
-  if(d.op==='health')return {version:'0.1.1',zotero:Zotero.version,operations:['collection','upsert','attach']};
+  if(d.op==='health')return {version:'0.1.2',zotero:Zotero.version,operations:['collection','reading-collections','upsert','attach']};
   if (!/^[0-9a-f-]{36}$/.test(d.project_id||'')) throw Error('Invalid project ID');
   if(d.op==='collection') {
    if(!clean(d.name).startsWith('Lit2Zotero · ')||d.name.length>160)throw Error('Use the Lit2Zotero · collection prefix');
@@ -34,7 +48,13 @@ async function startup({rootURI}) {
    const c=new Zotero.Collection();c.libraryID=Zotero.Libraries.userLibraryID;c.name=d.name;await c.saveTx();map[d.project_id]=c.key;Zotero.Prefs.set('lit2zotero.projects',JSON.stringify(map),true);return {key:c.key,name:c.name};
   }
   const c=await scope(d);
+  if(d.op==='reading-collections') {
+   const groups=await readingCollections(d,c);
+   return Object.fromEntries(Object.entries(groups).map(([kind,x])=>[kind,{key:x.key,name:x.name,parent_key:c.key}]));
+  }
   if(d.op==='upsert') {
+   if(d.pdf_requirement!==undefined&&!['required','not_required'].includes(d.pdf_requirement))throw Error('Invalid PDF requirement');
+   const groups=d.pdf_requirement!==undefined?await readingCollections(d,c):null;
    const m=d.metadata;
    if(!m||m.itemType!=='journalArticle'||!clean(m.title)||!Array.isArray(m.creators))throw Error('Invalid metadata');
    if(!/^P[a-f0-9]{12}$/.test(d.paper_id||''))throw Error('Invalid paper ID');
@@ -51,7 +71,12 @@ async function startup({rootURI}) {
      for(const k of ['title','date','DOI','abstractNote','publicationTitle','url','volume','issue','pages','extra'])if(m[k])item.setField(k,m[k]);
      item.setCreators(m.creators);
     }
-    item.addToCollection(c.id);item.addTag('lit2z:included');await item.save();
+    item.addToCollection(c.id);
+    if(groups) {
+     item.addToCollection(groups[d.pdf_requirement].id);
+     item.removeFromCollection(groups[d.pdf_requirement==='required'?'not_required':'required'].id);
+    }
+    item.addTag('lit2z:included');await item.save();
     const marker='Lit2Zotero '+d.project_id;
     let note=(await Zotero.Items.getAsync(item.getNotes())).find(n=>n.getNote().includes(marker));
     if(!note){note=new Zotero.Item('note');note.libraryID=item.libraryID;note.parentID=item.id;}

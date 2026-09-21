@@ -7,7 +7,7 @@ from urllib.parse import urlparse, quote
 import requests
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.1.0'
+VERSION = '0.1.1'
 
 class ContractError(ValueError): pass
 
@@ -246,25 +246,53 @@ def metadata(p):
     for k in ('volume','issue','pages'):
         if p.get(k):d[k]=str(p[k])
     d['extra']='\n'.join(k.upper()+': '+str(p[k]) for k in ('pmid','pmcid') if p.get(k));return d
+def pdf_requirement(p):
+    depths=[e.get('required_depth') for e in p.get('evidence',[])]
+    if not depths or any(d not in ('abstract','fulltext') for d in depths):raise ContractError('Explicit reading requirements required')
+    return 'required' if 'fulltext' in depths else 'not_required'
+
+def export_reading_queue(project):
+    rows=[]
+    for p in project.papers:
+        if p['decision']!='include':continue
+        requirement=pdf_requirement(p);has_local=bool(p.get('pdf') and Path(p['pdf']).is_file())
+        keys=p.get('zotero',{}).get('pdf_attachment_keys',[]) if p.get('zotero') else []
+        action='不要求PDF；保留摘要'
+        if requirement=='required':
+            action='精读已记录' if p.get('reading_status')=='fulltext_read' else ('待精读' if has_local else ('核查Zotero附件并接入精读' if keys else '待下载或手动补齐PDF'))
+        rows.append(dict(paper_id=p['paper_id'],title=p['title'],doi=p.get('doi',''),pdf_requirement=requirement,reading_collection='需要PDF' if requirement=='required' else '不需要PDF',local_pdf_present=has_local,zotero_pdf_attachment_keys=';'.join(keys),reading_status=p['reading_status'],next_action=action))
+    fields=list(rows[0]) if rows else ['paper_id','pdf_requirement','next_action']
+    buf=io.StringIO();w=csv.DictWriter(buf,fields,delimiter='\t');w.writeheader();w.writerows(rows);atomic(project.path/'reading_queue.tsv',buf.getvalue())
+    return len(rows)
+
 def sync(project,apply=False):
     selected=[p for p in project.papers if p['decision']=='include']
-    if not apply:return {'apply':False,'papers':[dict(paper_id=p['paper_id'],title=p['title']) for p in selected],'collection':project.config['collection_name']}
-    z=client(project);root=z.bridge('collection',name=project.config['collection_name'],project_id=project.config['project_id']);project.config['collection_key']=root['key'];write_json(project.path/'project.json',project.config)
+    if not apply:return {'apply':False,'papers':[dict(paper_id=p['paper_id'],title=p['title'],pdf_requirement=pdf_requirement(p)) for p in selected],'collection':project.config['collection_name']}
+    if project.config.get('backend')=='existing':raise ContractError('Reading subcollections require native bridge 0.1.2; metadata-only legacy mode cannot fulfill this contract')
+    z=client(project)
+    if 'reading-collections' not in z.bridge('health').get('operations',[]):raise ContractError('Install rebuilt native bridge 0.1.2 before syncing reading subcollections')
+    root=z.bridge('collection',name=project.config['collection_name'],project_id=project.config['project_id']);project.config['collection_key']=root['key']
+    groups=z.bridge('reading-collections',collection_key=root['key'],project_id=project.config['project_id']);project.config['reading_collections']=groups;write_json(project.path/'project.json',project.config)
     results=[]
     for p in selected:
         try:
             if p['identity_status']!='verified_metadata':raise ContractError('Unresolved identity')
-            result=z.bridge('upsert',collection_key=root['key'],project_id=project.config['project_id'],paper_id=p['paper_id'],preferred_key=p.get('preferred_zotero_key'),metadata=metadata(p),note=json.dumps(dict(reason=p['decision_reason'],evidence=p['evidence'],reading_status=p['reading_status']),ensure_ascii=False))
+            requirement=pdf_requirement(p)
+            result=z.bridge('upsert',collection_key=root['key'],project_id=project.config['project_id'],paper_id=p['paper_id'],preferred_key=p.get('preferred_zotero_key'),pdf_requirement=requirement,metadata=metadata(p),note=json.dumps(dict(reason=p['decision_reason'],evidence=p['evidence'],reading_status=p['reading_status'],pdf_requirement=requirement),ensure_ascii=False))
             saved=z.read('/api/users/0/items/'+result['key']).json();d=saved['data']
             if title_key(d['title'])!=title_key(p['title']) or (p.get('doi') and doi(d.get('DOI'))!=p['doi']):raise ContractError('Zotero readback identity mismatch')
             if root['key'] not in d.get('collections',[]):raise ContractError('Collection readback mismatch')
+            other='not_required' if requirement=='required' else 'required'
+            if groups[requirement]['key'] not in d.get('collections',[]) or groups[other]['key'] in d.get('collections',[]):raise ContractError('Reading subcollection mismatch')
             p['zotero']=dict(item_key=result['key'],item_uri=result['uri'],library_id=result['library_id'],library_type='user',title=d['title'],verified_at=now());p['sync_status']='metadata_verified';project.save()
             if p.get('pdf'):
                 a=z.bridge('attach',collection_key=root['key'],project_id=project.config['project_id'],item_key=result['key'],path=p['pdf']);p['zotero']['attachment_key']=a['key'];p['sync_status']='attachment_verified'
+            children=z.read('/api/users/0/items/'+result['key']+'/children').json()
+            p['zotero']['pdf_attachment_keys']=[a['key'] for a in children if a['data'].get('itemType')=='attachment' and a['data'].get('contentType')=='application/pdf']
             project.save();results.append(dict(paper_id=p['paper_id'],status=p['sync_status']))
         except (requests.RequestException,ValueError,KeyError) as e:
             p['sync_status']='partial_or_failed';project.save();results.append(dict(paper_id=p['paper_id'],status='failed',error=str(e)[:250]))
-    project.event('sync',results=results);return results
+    export_reading_queue(project);project.event('sync',results=results);return results
 def handoff(project):
     z=client(project);rows=[]
     for p in project.papers:

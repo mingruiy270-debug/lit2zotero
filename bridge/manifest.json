@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Lit2Zotero Local Bridge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Scoped local literature imports; no arbitrary code execution.",
   "applications": {
     "zotero": {

@@ -27,7 +27,7 @@ Reading JSON: `{paper_id, decision_maker:"host_agent", summary, locators:[{pdf_p
 ## Local writer choice
 
 - `native`: install `dist/lit2zotero-local.xpi` via Zotero Tools → Plugins → Install from File. Package/source/config all remain here. `private/bridge.json` holds the local token; do not print or publish. Native operations are limited to this project's prefixed collection and PDF paths under the configured allowedRoot. The server rejects browser Origin/Referer and wrong tokens.
-- `existing`: compatible with the already-installed zotero-write-endpoint v1.1.0. No extra plugin is needed for metadata. It reuses existing identities, preserves memberships and creates one initial managed note. It cannot update managed notes or attach local PDF files safely; those capabilities stay pending until native is available. Do not mislabel linked URLs as imported files.
+- `existing`: historical metadata-only compatibility adapter. New sync rejects it because it cannot satisfy the two reading-subcollection contract. Use native bridge 0.1.2 or newer.
 - No cloud writer is configured. No arbitrary JavaScript or SQL interface is exposed by this skill.
 
 Build the native XPI with scripts/build_bridge.py. This creates local credentials and an allowed directory under the current checkout; it does not edit any Zotero profile or install automatically. Install the generated XPI through Zotero's plugin manager. The XPI includes machine-specific settings and must not be redistributed.
@@ -63,3 +63,9 @@ The JSON object contains actor=host_agent, tool (actual tool name), query, scope
 For newly discovered papers, obtain verified structured metadata using an exact DOI query such as Europe PMC `DOI:10.xxxx/yyyy`, then match the DOI/title and link to the web record. If that source lacks the paper, use Crossref and explicitly verify the identifier; a search snippet must never become a fabricated abstract. A paper without confirmed metadata stays pending. Keep a discovered preprint separate from its journal version until the host reviews that relationship.
 
 Open relevant primary pages for identity, OA locations, methods, supplements and notices. Search engines are discovery tools, not inclusion arbiters. Opening HTML does not automatically mark fulltext_read; record actual reading with the established reading contract. Native-tool outages do not block useful API searches, but must remain visible as incomplete native coverage.
+
+## PDF requirement subcollections
+
+sync previews pdf_requirement before writing. Applied sync checks the native reading-collections capability, creates the two managed child collections, and verifies membership by local API readback. Parent membership is retained. Each included paper belongs to exactly one managed child within that project; different projects can legitimately classify the same item differently. A moved/deleted managed child blocks sync for review instead of silently creating replacements.
+
+reading_queue.tsv is the human queue for PDF acquisition and reading. Attachment metadata does not prove a readable PDF file or correct article identity; local_pdf_present is a file-presence flag, not a new content validation. Existing states fulltext_available_not_read and fulltext_read retain their definitions. When the researcher manually adds a PDF in Zotero, retrieve the file through a supported local mechanism, validate it using attach, then actually read it and use read to record verified locators. The queue does not itself generate a literature digest.

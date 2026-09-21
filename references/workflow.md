@@ -47,3 +47,19 @@ Use a single mutating CLI process per project. The native server serializes its 
 ## Minimal environment
 
 The .venv was installed only here. To recreate: `python -m venv .venv`, then `.venv/Scripts/python.exe -m pip install -r requirements.txt` with TEMP/TMP/PIP_CACHE_DIR pointing into this directory. No LLM API key is required: the host agent makes scientific decisions. `.env` is not auto-loaded; supply service credentials via environment explicitly.
+
+## Required host-native web search
+
+The host agent must actually use its native search and page-opening tools alongside structured scholarly APIs for each literature-search assignment. The Python CLI cannot call the host tool by itself; a standalone discover command is only the structured-retrieval part of the workflow. Cover relevant alternatives and limitations rather than only searching exact titles already chosen.
+
+Record each actual search batch with:
+
+```text
+python scripts/record_web_search.py --project projects/my_paper --record native_web_search.json
+```
+
+The JSON object contains actor=host_agent, tool (actual tool name), query, scope, performed_at (ISO timestamp), status (completed/no_results/failed/unavailable), and results (title, url, optional opened_url and doi). failed/unavailable requires a reason. Include returned/opened URLs, not invented tool IDs. Records are host attestations; the validator checks format and links known DOI candidates, but cannot prove the browsing call happened. It does not change inclusion or reading states.
+
+For newly discovered papers, obtain verified structured metadata using an exact DOI query such as Europe PMC `DOI:10.xxxx/yyyy`, then match the DOI/title and link to the web record. If that source lacks the paper, use Crossref and explicitly verify the identifier; a search snippet must never become a fabricated abstract. A paper without confirmed metadata stays pending. Keep a discovered preprint separate from its journal version until the host reviews that relationship.
+
+Open relevant primary pages for identity, OA locations, methods, supplements and notices. Search engines are discovery tools, not inclusion arbiters. Opening HTML does not automatically mark fulltext_read; record actual reading with the established reading contract. Native-tool outages do not block useful API searches, but must remain visible as incomplete native coverage.

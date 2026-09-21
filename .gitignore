@@ -10,6 +10,7 @@
 !/scripts/lit2zotero.py
 !/scripts/prepare_word_mapping.py
 !/scripts/build_bridge.py
+!/scripts/record_web_search.py
 !/bridge/
 /bridge/*
 !/bridge/bootstrap.js
@@ -27,5 +28,6 @@
 !/tests/test_package.py
 !/tests/test_word_binding.py
 !/tests/test_bridge.cjs
+!/tests/test_native_web.py
 __pycache__/
 *.pyc

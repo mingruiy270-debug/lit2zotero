@@ -1,0 +1,73 @@
+# Lit2Zotero
+
+按论文大纲组织文献检索、记录agent的纳入与阅读判断、建立本地Zotero分类，并向Word动态引文工作流交接真实条目身份。
+
+**文献是否纳入由宿主agent判断。** 搜索排名、下载成功和自动生成的摘要都不能替代证据判断。该skill提供可检查的流程与工具，不保证文献能够支持任意写作主张。
+
+## 能做什么
+
+- Europe PMC、Crossref检索与身份冲突检查；OpenAlex辅助定位OA全文。
+- 分开记录纳入理由、具体命题、摘要阅读和全文阅读状态。
+- 在本地Zotero中建立项目分类、复用已有条目、更新管理笔记和导入PDF。
+- 重复运行避免重复导入；无法确认的身份与未完成阅读保持阻断。
+- 导出引文交接表，并将Word技能的定位结果绑定到agent已确认的Zotero key，避免同DOI重复条目导致引用指向另一条记录。
+
+本仓库不包含个人文献库、文献PDF、API密钥、测试DOCX或配置后的XPI。
+
+## 环境与安装
+
+实际小批验收环境为Windows、Python 3.12、Zotero 9.0.6及Microsoft Word Desktop。其他系统与Zotero版本未完成完整链验收。
+
+```powershell
+git clone https://github.com/mingruiy270-debug/lit2zotero.git
+cd lit2zotero
+python -m venv .venv
+New-Item -ItemType Directory -Force tmp | Out-Null
+$env:TEMP = (Resolve-Path tmp).Path
+$env:TMP = $env:TEMP
+$env:PIP_CACHE_DIR = Join-Path $env:TEMP 'pip'
+& .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+& .\.venv\Scripts\python.exe scripts/build_bridge.py
+```
+
+在Zotero“工具→插件→从文件安装”中选择生成的 `dist/lit2zotero-local.xpi`。开启Zotero允许本机其他应用通信的选项。此XPI包含随机本机凭证和目录范围，**只能本机使用，不能上传或转发**。不要删除已有private配置后继续使用旧XPI；两端凭证需要一致。
+
+桥接版本为0.1.1，CLI为0.1.0。原生桥只提供限定分类和目录的操作，不提供任意JavaScript、数据库SQL、合并或删除接口。更新地址使用保留的.invalid域名以满足Zotero清单要求，插件关闭自己的后台更新；新版本通过本地重新构建和安装，不提供远程自动更新服务。
+
+## 开始一个项目
+
+让宿主agent读取本仓库[SKILL.md](SKILL.md)，根据实际大纲填写claims。复制[示例结构](examples/claims.example.json)后改成真实命题。
+
+```powershell
+& .\.venv\Scripts\python.exe scripts/lit2zotero.py doctor
+& .\.venv\Scripts\python.exe scripts/lit2zotero.py init --project projects/my_paper --claims examples/claims.example.json --collection 'Lit2Zotero · My paper' --backend native
+& .\.venv\Scripts\python.exe scripts/lit2zotero.py discover --project projects/my_paper --provider epmc --query 'gene prioritization benchmark' --pages 1
+```
+
+agent读取候选材料后，按[工作流说明](references/workflow.md)生成决策文件，再执行decide、必要的全文获取、sync和handoff。sync默认预览，明确加 `--apply` 才写入Zotero。完整项目与参考表在本仓库目录内保存；项目文件默认不被Git跟踪。
+
+无需独立LLM API key：科学判断由运行skill的agent完成。远程服务凭证通过环境变量提供，程序不会自动读取.env。保留服务原有使用限制；网络错误不标作检索完成。
+
+## Word交接
+
+Word自动化依赖另行安装并连接的 `word_mcp_live` 和兼容的 `zotero-word-citations-skill`；本仓库不捆绑第三方Word实现。参见[Word交接合同](references/word-handoff.md)。
+
+必须在副本上先运行Word技能的题名匹配，然后使用本仓库 `scripts/prepare_word_mapping.py` 生成配套的mapping-bound文件。所有插入输入都使用新绑定文件。最后以实际ZoteroRefresh、引用URI、书目及非引文内容比较验收，不能以“存在字段代码”代替成功。
+
+## 测试与已知范围
+
+```powershell
+& .\.venv\Scripts\python.exe scripts/build_bridge.py
+& .\.venv\Scripts\python.exe -m unittest discover -s tests -p 'test_*.py'
+node tests/test_bridge.cjs
+```
+
+发布前通用回归为26项Python测试和12项Node模拟检查。实际本地试点另外完成8篇书目、1份真实PDF附件、两次同步，以及4篇文献／4个Word引用字段／5次引用／4条书目的Refresh和格式对照。个人库结果和测试文档不随仓库发布，使用者仍需在自己的环境中实测。
+
+测试机存在Word首次启动VBA 424的环境警告，责任加载项尚未定位，用户选择暂缓处理。结束该错误后功能测试通过；本项目不声称已经解决该错误，也不保证所有Word加载项组合均可无人值守运行。
+
+首版支持journalArticle；未内置OCR、组库、云端写入或通用全文语义审查。两项需全文支持的试点命题保持未ready，没有因软件通过而升级为证据充分。非空超链接保真和大规模稿件尚未作为本轮验收覆盖项。
+
+## 许可
+
+本仓库代码采用[MIT](LICENSE)。运行依赖、Zotero、Word及其加载项遵循各自许可；MIT不覆盖下载的文献或第三方数据库内容。特别是PyMuPDF有自己的AGPL／商业许可条件，分发集成产品前需另行判断。

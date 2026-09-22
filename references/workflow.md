@@ -6,7 +6,13 @@ Run from the skill directory. Python 3.12; dependencies in requirements.txt. Rem
 
 claims.json is a list of `{claim_id, section_id, claim_text, citation_anchor, required_depth}`. Depth is `abstract` or `fulltext`. IDs must be unique. The project directory must initially be empty. Each project has project.json, claims.json, papers.jsonl and events.jsonl; this build uses claims.json instead of planned TSV to validate structured inputs consistently.
 
+Choose depth per specific citation use using the [claim-based reading policy](../SKILL.md#claim-based-reading-policy). An algorithm-development manuscript does not require full text for every reference: a biological background statement or a method's broad purpose may be abstract-sufficient. Equations, implementation details, precise experimental claims, or other details not supported by the abstract require the relevant original material. Neither subject keywords nor download availability decide the depth. Split mixed-purpose section-level claims before assigning requirements.
+
 Decision files contain a list of `{paper_id, decision, decision_maker:"host_agent", reason, abstract_read, evidence:[{claim_id, required_depth, relation, reason}]}`. Relations are supports, qualifies, contrasts, context_only, unresolved. include requires at least one claim. Existing title/ID conflicts block inclusion. Decisions are all validated before saving.
+
+Use each evidence.reason to record the intended assertion and why the abstract suffices or the specific detail to check in full text. Inclusion reason and reading-depth reason are distinct judgments, even though the existing schema stores their explanation as text. No new classifier or automatic threshold assigns these decisions.
+
+For a reviewed change to an existing requirement, first record the old/new claim scope and depth, affected paper IDs and rationale in events.jsonl via Project.event. Update the claim contract and submit a fresh agent decision through decide, then preview/apply sync. This is an explicit agent review, not a --force switch; decide still rejects a lower depth than the current claim requires. Preserve attachments and valid reading history, and recheck handoff readiness after any scope change. Missing full text alone never justifies lowering a requirement.
 
 If the daily library already contains duplicate same-DOI entries, the agent may explicitly select an existing canonical entry after inspecting complete titles and metadata: `bind --project <dir> --paper-id <P...> --item-key <key> --reason <reviewed reason>`. This validates same DOI and punctuation-normalized complete title and records the binding. It does not merge or delete existing items. Different-DOI or substantial title conflicts remain blocked.
 

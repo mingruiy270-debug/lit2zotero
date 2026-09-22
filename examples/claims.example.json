@@ -2,8 +2,15 @@
   {
     "claim_id": "C1",
     "section_id": "Introduction",
-    "claim_text": "Replace with the actual external-knowledge claim from your outline.",
-    "citation_anchor": "Replace with the actual intended sentence or paragraph anchor.",
+    "claim_text": "Replace with a general background phenomenon explicitly supported by the actual abstract; reassess depth after reading it.",
+    "citation_anchor": "Replace with the intended background sentence; do not add mechanism or experimental details absent from the abstract.",
+    "required_depth": "abstract"
+  },
+  {
+    "claim_id": "C2",
+    "section_id": "Methods",
+    "claim_text": "Replace with the specific algorithm formula, assumption or implementation detail that must be checked in the original method.",
+    "citation_anchor": "Replace with the intended methods sentence and the particular detail to verify.",
     "required_depth": "fulltext"
   }
 ]

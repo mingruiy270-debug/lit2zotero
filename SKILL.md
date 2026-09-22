@@ -19,9 +19,11 @@ Use the project-local `.venv/Scripts/python.exe scripts/lit2zotero.py`. Keep pro
 
 ## Claim-based reading policy
 
-**Match reading effort to the assertion being cited.** For an algorithm-development paper, an ordinary description of a biological phenomenon, motivation, or an existing method's broad purpose can use `abstract` when the actual abstract clearly supports the intended wording and scope. Being a biological paper, an original research paper, a dataset paper, or a comparator does not by itself require a PDF.
+**Determine reading depth from the manuscript's actual topic, research question and prepared writing outline, then the intended role of each citation.** First read the current outline and identify what the article is trying to establish. Locate the reference in its planned section/paragraph, determine the assertion and level of detail needed there, and compare that need with the actual abstract. The agent then chooses abstract-only reading or the relevant full-text sections and records its reasoning. These are contextual judgments, not a fixed reading-depth table.
 
-Use `fulltext` when the intended use depends on details absent from or ambiguous in the abstract, for example:
+For example, in an algorithm-development paper, an ordinary description of a biological phenomenon, motivation, or an existing method's broad purpose can use `abstract` when the actual abstract clearly supports the intended wording and scope. In a manuscript centred on that biological mechanism, the same reference may instead need full-text scrutiny. Conversely, a method cited only to orient the reader may need no detailed formula review. Being a biological paper, an original research paper, a dataset paper, or a comparator does not by itself determine the depth.
+
+The following are examples of details that may warrant `fulltext`, depending on the outline and the intended assertion; they are not mandatory categories triggered by particular words:
 
 - A core formula, algorithm step, assumption, hyperparameter, implementation choice, or reproducibility detail.
 - The exact comparator inputs/outputs, dataset selection, evaluation protocol, or numerical finding.
@@ -32,7 +34,7 @@ These are judgment prompts, not keyword rules. A brief mention of an algorithm n
 
 Read the actual abstract before declaring it sufficient; a search snippet or generated summary is not a substitute. If sufficiency is unclear, inspect the relevant original sections or keep the detailed use pending. Full-text checking should cover the relevant methods/results/figures and necessary context; it need not produce an exhaustive review of unrelated sections.
 
-Split broad claims with different needs instead of assigning one full-text requirement to an entire section. For a paper with several uses, decide depth for each use; one genuine full-text use keeps the paper in 需要PDF. Otherwise it belongs in 不需要PDF. Record the specific depth rationale in evidence.reason.
+Split broad claims with different needs instead of assigning one full-text requirement to an entire section. For a paper with several uses, decide depth for each use; one genuine full-text use keeps the paper in 需要PDF. Otherwise it belongs in 不需要PDF. Record the manuscript topic/outline context, citation purpose and specific depth rationale in evidence.reason. Reassess when the outline, article focus or intended claim changes; an earlier reading requirement is not a permanent property of a paper.
 
 For an existing project, reclassification requires an explicit agent review of the intended claim, its available evidence, and the prior decision. Record the old/new scope and depth, reason, and affected paper IDs in the project event log; update the claim contract and then apply reviewed decisions through decide/sync. The current CLI rejects downgrading a decision beneath its claim contract. Do not bypass that check or silently rewrite all old decisions. Preserve existing PDFs and reading records; changing this policy does not itself reclassify a library.
 

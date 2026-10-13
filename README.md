@@ -1,6 +1,16 @@
 # Lit2Zotero
 
-按论文大纲组织文献检索、记录agent的纳入与阅读判断、建立本地Zotero分类，并向Word动态引文工作流交接真实条目身份。
+面向研究检索、BioKB全文建库和明确的论文写作任务，记录agent的纳入与阅读判断并建立本地Zotero分类。仅写作任务启用PDF需求分组与Word引文交接。
+
+## 先区分任务目的
+
+`init --task-mode research|biokb|writing`：默认research，不因最终可能发表论文就猜成写作。
+
+- BioKB：所有纳入文献都需要PDF；仅一个项目分类，不拆“需要PDF/不需要PDF”。下载不了保留条目并进入待补清单，不降低要求、不启动自动付费精读。
+- 一般研究检索：不拆PDF需求子分类；按实际用途确定阅读深度。
+- 明确写作/返修/引文任务：才按下节引用用途建立两个子分类。
+
+已有项目需显式`set-mode`、给出理由、先预览再`--apply`；不会批量改其他工作区。迁移旧子分类需bridge **0.3.0**，保留文献、笔记、附件及其他分类，只移除经核查的管理分类壳。CLI **0.2.0**；无模式的旧项目在同步前要求复核。
 
 **文献是否纳入由宿主agent判断。** 搜索排名、下载成功和自动生成的摘要都不能替代证据判断。该skill提供可检查的流程与工具，不保证文献能够支持任意写作主张。
 
@@ -14,7 +24,7 @@
 
 本仓库不包含个人文献库、文献PDF、API密钥、测试DOCX或配置后的XPI。
 
-## 按引用用途决定是否需要全文
+## 写作模式：按引用用途决定是否需要全文
 
 **纳入文献不等于必须下载PDF。阅读深度由agent结合文章主题、研究问题和拟好的写作大纲自主确定，不设固定分类表。** 先理解文章要回答什么问题，再定位文献在具体章节和段落中的作用，明确拟写论点及所需细节，最后判断实际摘要是否足够，或需要核对哪些原文内容。
 
@@ -44,7 +54,7 @@ $env:PIP_CACHE_DIR = Join-Path $env:TEMP 'pip'
 
 在Zotero“工具→插件→从文件安装”中选择生成的 `dist/lit2zotero-local.xpi`。开启Zotero允许本机其他应用通信的选项。**每个Zotero profile只安装一个Local Bridge**，不要为不同工作区改插件ID。每个工作区运行构建器注册自己的凭据与目录范围，XPI只引用共享registry的位置，**只能本机使用，不能上传或转发**。Windows registry位于`%LOCALAPPDATA%/Lit2Zotero/clients.json`；令牌保留在各工作区private配置及此文件，不互相覆盖。WSL调用Windows Zotero时用Windows Python构建。
 
-桥接版本为0.2.0，CLI为0.1.1。兼容声明上限为`10.0.*`，不是无边界的未来版本通配。原生桥只提供限定分类和目录的操作，不提供任意JavaScript、数据库SQL、合并或删除接口。更新地址使用保留的.invalid域名以满足Zotero清单要求，插件关闭自己的后台更新；新版本通过本地重新构建和安装，不提供远程自动更新服务。
+当前桥接0.3.0、CLI 0.2.0，兼容上限`10.0.*`。原生桥仅提供限定分类/目录操作，不提供任意JS、SQL或通用删除/合并接口；唯一新增清理操作只针对本项目两个已核实管理分类壳，强制保留全部文献。更新地址使用保留的.invalid域名；插件不后台更新，新版需本机重新构建安装。
 
 旧工作区插件迁移见[升级说明](references/workflow.md#upgrade--multiple-workspaces-bridge-020)。保留旧token、项目UUID及偏好命名空间，支持经审核的旧endpoint别名；不直接修改Zotero数据库，不删除已有分类。旧fork需在UI中停用/移除，后续不再安装其旧XPI。
 
@@ -68,7 +78,7 @@ python scripts/build_bridge.py --register-only
 
 ```powershell
 & .\.venv\Scripts\python.exe scripts/lit2zotero.py doctor
-& .\.venv\Scripts\python.exe scripts/lit2zotero.py init --project projects/my_paper --claims examples/claims.example.json --collection 'Lit2Zotero · My paper' --backend native
+& .\.venv\Scripts\python.exe scripts/lit2zotero.py init --project projects/my_paper --claims examples/claims.example.json --collection 'Lit2Zotero · My paper' --backend native --task-mode writing
 & .\.venv\Scripts\python.exe scripts/lit2zotero.py discover --project projects/my_paper --provider epmc --query 'gene prioritization benchmark' --pages 1
 ```
 
@@ -83,6 +93,8 @@ Word自动化依赖另行安装并连接的 `word_mcp_live` 和兼容的 `zotero
 必须在副本上先运行Word技能的题名匹配，然后使用本仓库 `scripts/prepare_word_mapping.py` 生成配套的mapping-bound文件。所有插入输入都使用新绑定文件。最后以实际ZoteroRefresh、引用URI、书目及非引文内容比较验收，不能以“存在字段代码”代替成功。
 
 ## 测试与已知范围
+
+0.3.0任务模式更新通过47项Python回归与35项Node模拟检查：覆盖BioKB全PDF、非写作不分组、旧模式未确认即停止、分类迁移预览/重复执行、条目/附件及无关分类保留、嵌套/改名子分类拒绝操作。模拟测试不是实机迁移验收，安装后应对授权分类回查。
 
 ```powershell
 & .\.venv\Scripts\python.exe -m unittest discover -s tests -p 'test_*.py'
@@ -101,9 +113,9 @@ node tests/test_bridge.cjs
 
 原生联网由运行skill的agent实际调用（例如Codex的web.run），并通过record_web_search.py记录；Python脚本本身不会获得或模拟宿主联网工具权限。工具不可用时必须记录原因，不得把API查询冒称为完成原生联网检索。
 
-## 两个PDF子分类
+## 两个PDF子分类（仅明确写作任务）
 
-每个项目分类下自动建立“需要PDF”和“不需要PDF”。分类依据是agent声明的阅读需求，而不是现在有没有PDF：任一命题要求全文即归入“需要PDF”，已补齐或已精读也不移出；所有用途只需摘要才归入“不需要PDF”。只在本项目的两个管理子分类之间调整成员关系，不删除文献、不改变其他分类。
+仅writing项目建立“需要PDF”和“不需要PDF”。依据是阅读需求而非有无附件：任一命题要求全文即归入前者，所有用途只需摘要才归入后者。BioKB不拆组且所有条目都需要PDF，一般research也不拆组。仅改变授权项目的关系，不删除文献、不改变其他项目。
 
 每次sync另输出reading_queue.tsv，列出题名、DOI、需求类别、附件记录、阅读状态和下一步操作。用户可以把PDF手动拖到Zotero对应父条目下；下次sync会看到附件元数据，但不会把它当作已核实原文或已精读。agent仍需取得实际文件、调用attach校验身份并完成原文阅读，之后才能生成可靠精读记录。
 

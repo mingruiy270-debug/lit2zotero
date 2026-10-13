@@ -51,7 +51,7 @@ async function startup({rootURI}) {
   return result;
  }
  async function execute(d,config) {
-  if(d.op==='health')return {version:'0.2.0',zotero:Zotero.version,workspace_id:config.workspace_id,operations:['collection','reading-collections','upsert','attach','multi-workspace']};
+  if(d.op==='health')return {version:'0.3.0',zotero:Zotero.version,workspace_id:config.workspace_id,operations:['collection','reading-collections','flatten-reading-collections','upsert','attach','multi-workspace']};
   if (!/^[0-9a-f-]{36}$/.test(d.project_id||'')) throw Error('Invalid project ID');
   const owners=JSON.parse(Zotero.Prefs.get('lit2zotero.projectOwners',true)||'{}');
   if(owners[d.project_id]&&owners[d.project_id]!==config.workspace_id)throw Error('Project belongs to another workspace');
@@ -68,6 +68,33 @@ async function startup({rootURI}) {
    const c=new Zotero.Collection();c.libraryID=Zotero.Libraries.userLibraryID;c.name=d.name;await c.saveTx();map[d.project_id]=c.key;Zotero.Prefs.set(namespace(config)+'.projects',JSON.stringify(map),true);return {key:c.key,name:c.name};
   }
   const c=await scope(d,config);
+  if(d.op==='flatten-reading-collections') {
+   if(typeof d.apply!=='boolean')throw Error('Explicit preview/apply required');
+   const pref=namespace(config)+'.readingCollections';
+   const maps=JSON.parse(Zotero.Prefs.get(pref,true)||'{}'),own=maps[d.project_id]||{};
+   const children=[];
+   for(const [kind,name] of [['required','需要PDF'],['not_required','不需要PDF']]) {
+    if(!own[kind])continue;
+    const child=Zotero.Collections.getByLibraryAndKey(c.libraryID,own[kind]);
+    if(!child||child.deleted||child.parentID!==c.id||child.name!==name)throw Error('Managed child missing, renamed or moved; manual review required');
+    await child.loadDataType('childCollections');await child.loadDataType('childItems');
+    if(child.getChildCollections(true,true).length)throw Error('Nested collections require manual review');
+    children.push(child);
+   }
+   const result={apply:d.apply,parent_key:c.key,removed_collection_keys:children.map(x=>x.key),items_preserved:true};
+   if(!d.apply)return result;
+   await Zotero.DB.executeTransaction(async()=>{
+    for(const child of children) {
+     for(const item of await Zotero.Items.getAsync(child.getChildItems(true,true))) {
+      item.addToCollection(c.id);await item.save();
+     }
+     // Remove only the verified generated shell, NEVER its items/notes/PDFs.
+     await child.erase({deleteItems:false});
+    }
+   });
+   delete maps[d.project_id];Zotero.Prefs.set(pref,JSON.stringify(maps),true);
+   return result;
+  }
   if(d.op==='reading-collections') {
    const groups=await readingCollections(d,c,config);
    return Object.fromEntries(Object.entries(groups).map(([kind,x])=>[kind,{key:x.key,name:x.name,parent_key:c.key}]));

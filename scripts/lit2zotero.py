@@ -7,7 +7,7 @@ from urllib.parse import urlparse, quote
 import requests
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.1.1'
+VERSION = '0.2.0'
 
 class ContractError(ValueError): pass
 
@@ -154,7 +154,7 @@ def attach_local(project,id,path):
     p['pdf']=str(dest);p['pdf_pages']=len(pages);p['access_status']='pdf_verified';p['reading_status']='fulltext_available_not_read';project.save();project.event('pdf_verified',paper_id=id,pages=len(pages));return {'paper_id':id,'pages':len(pages)}
 def resolve(project,id):
     p=project.get(id)
-    if p['decision']!='include' or not any(e['required_depth']=='fulltext' for e in p['evidence']):return {'status':'not_required'}
+    if p['decision']!='include' or pdf_requirement(p,task_mode(project))!='required':return {'status':'not_required'}
     links=[x.get('url') for x in p.get('urls',[]) if x.get('documentStyle','').lower()=='pdf' and x.get('availabilityCode','').upper() in ('OA','F') and x.get('url')]
     if p.get('doi'):
         try:
@@ -246,44 +246,59 @@ def metadata(p):
     for k in ('volume','issue','pages'):
         if p.get(k):d[k]=str(p[k])
     d['extra']='\n'.join(k.upper()+': '+str(p[k]) for k in ('pmid','pmcid') if p.get(k));return d
-def pdf_requirement(p):
+def task_mode(project):
+    mode=project.config.get('task_mode')
+    if mode not in ('writing','biokb','research'):
+        raise ContractError('Explicit task mode required; review legacy project with set-mode')
+    return mode
+
+def pdf_requirement(p,mode='writing'):
+    if mode=='biokb':return 'required'
     depths=[e.get('required_depth') for e in p.get('evidence',[])]
     if not depths or any(d not in ('abstract','fulltext') for d in depths):raise ContractError('Explicit reading requirements required')
     return 'required' if 'fulltext' in depths else 'not_required'
 
 def export_reading_queue(project):
+    mode=task_mode(project)
     rows=[]
     for p in project.papers:
         if p['decision']!='include':continue
-        requirement=pdf_requirement(p);has_local=bool(p.get('pdf') and Path(p['pdf']).is_file())
+        requirement=pdf_requirement(p,mode);has_local=bool(p.get('pdf') and Path(p['pdf']).is_file())
         keys=p.get('zotero',{}).get('pdf_attachment_keys',[]) if p.get('zotero') else []
         action='不要求PDF；保留摘要'
         if requirement=='required':
             action='精读已记录' if p.get('reading_status')=='fulltext_read' else ('待精读' if has_local else ('核查Zotero附件并接入精读' if keys else '待下载或手动补齐PDF'))
-        rows.append(dict(paper_id=p['paper_id'],title=p['title'],doi=p.get('doi',''),pdf_requirement=requirement,reading_collection='需要PDF' if requirement=='required' else '不需要PDF',local_pdf_present=has_local,zotero_pdf_attachment_keys=';'.join(keys),reading_status=p['reading_status'],next_action=action))
+        rows.append(dict(paper_id=p['paper_id'],title=p['title'],doi=p.get('doi',''),pdf_requirement=requirement,reading_collection=('需要PDF' if requirement=='required' else '不需要PDF') if mode=='writing' else '',local_pdf_present=has_local,zotero_pdf_attachment_keys=';'.join(keys),reading_status=p['reading_status'],next_action=action))
     fields=list(rows[0]) if rows else ['paper_id','pdf_requirement','next_action']
     buf=io.StringIO();w=csv.DictWriter(buf,fields,delimiter='\t');w.writeheader();w.writerows(rows);atomic(project.path/'reading_queue.tsv',buf.getvalue())
     return len(rows)
 
 def sync(project,apply=False):
+    mode=task_mode(project)
     selected=[p for p in project.papers if p['decision']=='include']
-    if not apply:return {'apply':False,'papers':[dict(paper_id=p['paper_id'],title=p['title'],pdf_requirement=pdf_requirement(p)) for p in selected],'collection':project.config['collection_name']}
+    if not apply:return {'apply':False,'task_mode':mode,'layout':'reading_groups' if mode=='writing' else 'flat','papers':[dict(paper_id=p['paper_id'],title=p['title'],pdf_requirement=pdf_requirement(p,mode)) for p in selected],'collection':project.config['collection_name']}
     if project.config.get('backend')=='existing':raise ContractError('Reading subcollections require native bridge 0.1.2; metadata-only legacy mode cannot fulfill this contract')
     z=client(project)
     if 'reading-collections' not in z.bridge('health').get('operations',[]):raise ContractError('Install rebuilt native bridge 0.1.2 before syncing reading subcollections')
     root=z.bridge('collection',name=project.config['collection_name'],project_id=project.config['project_id']);project.config['collection_key']=root['key']
-    groups=z.bridge('reading-collections',collection_key=root['key'],project_id=project.config['project_id']);project.config['reading_collections']=groups;write_json(project.path/'project.json',project.config)
+    groups=None
+    if mode=='writing':
+        groups=z.bridge('reading-collections',collection_key=root['key'],project_id=project.config['project_id']);project.config['reading_collections']=groups
+    elif project.config.get('reading_collections'):
+        raise ContractError('Existing reading groups require explicit set-mode --apply migration first')
+    write_json(project.path/'project.json',project.config)
     results=[]
     for p in selected:
         try:
             if p['identity_status']!='verified_metadata':raise ContractError('Unresolved identity')
-            requirement=pdf_requirement(p)
-            result=z.bridge('upsert',collection_key=root['key'],project_id=project.config['project_id'],paper_id=p['paper_id'],preferred_key=p.get('preferred_zotero_key'),pdf_requirement=requirement,metadata=metadata(p),note=json.dumps(dict(reason=p['decision_reason'],evidence=p['evidence'],reading_status=p['reading_status'],pdf_requirement=requirement),ensure_ascii=False))
+            requirement=pdf_requirement(p,mode)
+            grouping={'pdf_requirement':requirement} if mode=='writing' else {}
+            result=z.bridge('upsert',collection_key=root['key'],project_id=project.config['project_id'],paper_id=p['paper_id'],preferred_key=p.get('preferred_zotero_key'),metadata=metadata(p),note=json.dumps(dict(reason=p['decision_reason'],evidence=p['evidence'],reading_status=p['reading_status'],pdf_requirement=requirement,task_mode=mode),ensure_ascii=False),**grouping)
             saved=z.read('/api/users/0/items/'+result['key']).json();d=saved['data']
             if title_key(d['title'])!=title_key(p['title']) or (p.get('doi') and doi(d.get('DOI'))!=p['doi']):raise ContractError('Zotero readback identity mismatch')
             if root['key'] not in d.get('collections',[]):raise ContractError('Collection readback mismatch')
             other='not_required' if requirement=='required' else 'required'
-            if groups[requirement]['key'] not in d.get('collections',[]) or groups[other]['key'] in d.get('collections',[]):raise ContractError('Reading subcollection mismatch')
+            if groups and (groups[requirement]['key'] not in d.get('collections',[]) or groups[other]['key'] in d.get('collections',[])):raise ContractError('Reading subcollection mismatch')
             p['zotero']=dict(item_key=result['key'],item_uri=result['uri'],library_id=result['library_id'],library_type='user',title=d['title'],verified_at=now());p['sync_status']='metadata_verified';project.save()
             if p.get('pdf'):
                 a=z.bridge('attach',collection_key=root['key'],project_id=project.config['project_id'],item_key=result['key'],path=p['pdf']);p['zotero']['attachment_key']=a['key'];p['sync_status']='attachment_verified'
@@ -293,7 +308,22 @@ def sync(project,apply=False):
         except (requests.RequestException,ValueError,KeyError) as e:
             p['sync_status']='partial_or_failed';project.save();results.append(dict(paper_id=p['paper_id'],status='failed',error=str(e)[:250]))
     export_reading_queue(project);project.event('sync',results=results);return results
+def set_mode(project,mode,reason,apply=False):
+    if mode not in ('writing','biokb','research') or not reason.strip():raise ContractError('Explicit mode and reason required')
+    root=project.config.get('collection_key');migration=None
+    if root and mode!='writing':
+        z=client(project)
+        if 'flatten-reading-collections' not in z.bridge('health').get('operations',[]):raise ContractError('Install bridge 0.3.0 to migrate existing collections safely')
+        migration=z.bridge('flatten-reading-collections',collection_key=root,project_id=project.config['project_id'],apply=apply)
+    result=dict(old_mode=project.config.get('task_mode','legacy_unspecified'),new_mode=mode,reason=reason,apply=apply,migration=migration)
+    if apply:
+        project.config['task_mode']=mode
+        if mode!='writing':project.config.pop('reading_collections',None)
+        write_json(project.path/'project.json',project.config);project.event('task_mode_changed',**result);export_reading_queue(project)
+    return result
+
 def handoff(project):
+    if task_mode(project)!='writing':raise ContractError('Citation handoff is for explicit writing tasks only')
     z=client(project);rows=[]
     for p in project.papers:
         if p['decision']!='include':continue
@@ -311,6 +341,8 @@ def handoff(project):
 def main(argv=None):
     a=argparse.ArgumentParser();a.add_argument('--version',action='version',version=VERSION);s=a.add_subparsers(dest='cmd',required=True)
     x=s.add_parser('init');x.add_argument('--project',required=True);x.add_argument('--claims',required=True);x.add_argument('--collection',required=True);x.add_argument('--zotero-base',default='http://127.0.0.1:23119');x.add_argument('--backend',choices=['native','existing'],default='native')
+    x.add_argument('--task-mode',choices=['writing','biokb','research'],default='research')
+    x=s.add_parser('set-mode');x.add_argument('--project',required=True);x.add_argument('--task-mode',choices=['writing','biokb','research'],required=True);x.add_argument('--reason',required=True);x.add_argument('--apply',action='store_true')
     x=s.add_parser('doctor');x.add_argument('--zotero-base',default='http://127.0.0.1:23119')
     for name in ['discover','decide','resolve','attach','read','sync','handoff','bind']:
         x=s.add_parser(name);x.add_argument('--project',required=True)
@@ -331,8 +363,9 @@ def main(argv=None):
         if not claims or len({c['claim_id'] for c in claims})!=len(claims):raise ContractError('Unique nonempty claims required')
         for c in claims:
             if not all(c.get(k) for k in ['claim_id','section_id','claim_text','citation_anchor']) or c.get('required_depth') not in ('abstract','fulltext'):raise ContractError('Invalid claim contract')
-        p.mkdir(parents=True,exist_ok=True);write_json(p/'claims.json',claims);write_json(p/'project.json',dict(project_id=str(uuid.uuid4()),collection_name=args.collection,zotero_base=args.zotero_base,backend=args.backend,version=VERSION));return {'project':str(p)}
+        p.mkdir(parents=True,exist_ok=True);write_json(p/'claims.json',claims);write_json(p/'project.json',dict(project_id=str(uuid.uuid4()),collection_name=args.collection,zotero_base=args.zotero_base,backend=args.backend,version=VERSION,task_mode=args.task_mode));return {'project':str(p)}
     p=Project(args.project)
+    if args.cmd=='set-mode':return set_mode(p,args.task_mode,args.reason,args.apply)
     if args.cmd=='bind':
         paper=p.get(args.paper_id);obj=client(p).read('/api/users/0/items/'+args.item_key).json();d=obj['data']
         if not paper.get('doi') or doi(d.get('DOI'))!=paper['doi'] or title_key(d['title'])!=title_key(paper['title']):raise ContractError('Reviewed binding must have same DOI and complete normalized title')

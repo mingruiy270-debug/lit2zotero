@@ -4,6 +4,17 @@ Run from the skill directory. Python 3.12; dependencies in requirements.txt. Rem
 
 ## Inputs
 
+Select `--task-mode writing|biokb|research` at init (default research). Only an explicit writing task creates the two PDF-need children. BioKB always needs PDFs and uses a flat collection; research is also flat with task-specific reading depth. Non-writing claims.json holds research questions rather than an invented manuscript outline. Inclusion screening is not completed full-text reading.
+
+For a reviewed existing BioKB project, install bridge 0.3.0, then preview and apply:
+
+```text
+python scripts/lit2zotero.py set-mode --project <dir> --task-mode biokb --reason "User requested a full-text knowledge base"
+python scripts/lit2zotero.py set-mode --project <dir> --task-mode biokb --reason "User requested a full-text knowledge base" --apply
+```
+
+Preview is read-only. Apply retains all child members in the registered parent, removes only the verified generated shells, and never deletes items/PDFs/notes. Renamed, moved, nested or missing shells require review. Unrelated children and other projects are untouched. This is not a general deletion API. A fresh flat project also works on bridge 0.2.0 by omitting pdf_requirement on upsert; existing layout migration needs 0.3.0. Legacy projects with no task_mode cannot silently sync as writing.
+
 claims.json is a list of `{claim_id, section_id, claim_text, citation_anchor, required_depth}`. Depth is `abstract` or `fulltext`. IDs must be unique. The project directory must initially be empty. Each project has project.json, claims.json, papers.jsonl and events.jsonl; this build uses claims.json instead of planned TSV to validate structured inputs consistently.
 
 Choose depth using the [claim-based reading policy](../SKILL.md#claim-based-reading-policy): read the manuscript topic, research question and prepared outline first; locate the citation's section/paragraph and intended purpose; determine the detail needed; then assess whether the actual abstract supports that use. The agent makes this contextual decision rather than applying a fixed mapping from subjects or document types to reading depths. An algorithm-development manuscript may use a biological paper for background, whereas a mechanism-focused manuscript may require detailed reading of the same paper. Formula, implementation and experimental-detail examples are prompts, not automatic triggers. Split mixed-purpose section-level claims and reassess depth when the outline or intended assertion changes.
@@ -84,8 +95,8 @@ For newly discovered papers, obtain verified structured metadata using an exact 
 
 Open relevant primary pages for identity, OA locations, methods, supplements and notices. Search engines are discovery tools, not inclusion arbiters. Opening HTML does not automatically mark fulltext_read; record actual reading with the established reading contract. Native-tool outages do not block useful API searches, but must remain visible as incomplete native coverage.
 
-## PDF requirement subcollections
+## PDF requirement subcollections (explicit writing only)
 
-sync previews pdf_requirement before writing. Applied sync checks the native reading-collections capability, creates the two managed child collections, and verifies membership by local API readback. Parent membership is retained. Each included paper belongs to exactly one managed child within that project; different projects can legitimately classify the same item differently. A moved/deleted managed child blocks sync for review instead of silently creating replacements.
+sync previews task_mode, layout and pdf_requirement. Only writing sync creates the two managed children and verifies membership. BioKB/research sync never requests those children; BioKB records PDF required for every included paper and keeps acquisition/read states in the queue. Parent membership is retained. In writing each paper belongs to exactly one managed child; a moved/deleted child blocks review instead of silently creating replacements.
 
 reading_queue.tsv is the human queue for PDF acquisition and reading. Attachment metadata does not prove a readable PDF file or correct article identity; local_pdf_present is a file-presence flag, not a new content validation. Existing states fulltext_available_not_read and fulltext_read retain their definitions. When the researcher manually adds a PDF in Zotero, retrieve the file through a supported local mechanism, validate it using attach, then actually read it and use read to record verified locators. The queue does not itself generate a literature digest.

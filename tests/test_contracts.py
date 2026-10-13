@@ -5,7 +5,7 @@ import lit2zotero as l
 class Contracts(unittest.TestCase):
  def setUp(self):
   self.dir=Path(__file__).parent/'work'/uuid.uuid4().hex;self.dir.mkdir(parents=True)
-  l.write_json(self.dir/'project.json',dict(project_id=str(uuid.uuid4()),collection_name='Lit2Zotero · contract test'))
+  l.write_json(self.dir/'project.json',dict(project_id=str(uuid.uuid4()),collection_name='Lit2Zotero · contract test',task_mode='writing'))
   l.write_json(self.dir/'claims.json',[dict(claim_id='C1',section_id='M',claim_text='Method assumptions',citation_anchor='Sentence 1',required_depth='fulltext')]);self.p=l.Project(self.dir)
  def paper(self,title='A sufficiently descriptive scientific paper title',doi='10.1234/test'):
   return self.p.add(dict(title=title,doi=doi,abstract='A real abstract for a SOFTWARE TEST FIXTURE.',authors=[],sources=[]))

@@ -4,13 +4,15 @@
 
 ## 先区分任务目的
 
+分类名直接使用“项目名称＋用途”，例如`Bulk2Flow知识库`、`项目甲返修参考`；不强制`Lit2Zotero ·`前缀，也不默认附加UUID/日期。名称仅供人阅读，权限仍按工作区凭据、项目ID和分类key隔离，不按同名自动接管或合并。现有分类仅在用户要求时通过`rename-collection`预览/应用更名，保留key和全部文献；普通同步不擅自改名。该命名支持及安全更名接口需bridge **0.3.1**，CLI **0.2.1**。
+
 `init --task-mode research|biokb|writing`：默认research，不因最终可能发表论文就猜成写作。
 
 - BioKB：所有纳入文献都需要PDF；仅一个项目分类，不拆“需要PDF/不需要PDF”。下载不了保留条目并进入待补清单，不降低要求、不启动自动付费精读。
 - 一般研究检索：不拆PDF需求子分类；按实际用途确定阅读深度。
 - 明确写作/返修/引文任务：才按下节引用用途建立两个子分类。
 
-已有项目需显式`set-mode`、给出理由、先预览再`--apply`；不会批量改其他工作区。迁移旧子分类需bridge **0.3.0**，保留文献、笔记、附件及其他分类，只移除经核查的管理分类壳。CLI **0.2.0**；无模式的旧项目在同步前要求复核。
+已有项目需显式`set-mode`、给出理由、先预览再`--apply`；不会批量改其他工作区。迁移旧子分类需bridge **0.3.0或更新版本**，保留文献、笔记、附件及其他分类，只移除经核查的管理分类壳。无模式的旧项目在同步前要求复核。
 
 **文献是否纳入由宿主agent判断。** 搜索排名、下载成功和自动生成的摘要都不能替代证据判断。该skill提供可检查的流程与工具，不保证文献能够支持任意写作主张。
 
@@ -54,7 +56,7 @@ $env:PIP_CACHE_DIR = Join-Path $env:TEMP 'pip'
 
 在Zotero“工具→插件→从文件安装”中选择生成的 `dist/lit2zotero-local.xpi`。开启Zotero允许本机其他应用通信的选项。**每个Zotero profile只安装一个Local Bridge**，不要为不同工作区改插件ID。每个工作区运行构建器注册自己的凭据与目录范围，XPI只引用共享registry的位置，**只能本机使用，不能上传或转发**。Windows registry位于`%LOCALAPPDATA%/Lit2Zotero/clients.json`；令牌保留在各工作区private配置及此文件，不互相覆盖。WSL调用Windows Zotero时用Windows Python构建。
 
-当前桥接0.3.0、CLI 0.2.0，兼容上限`10.0.*`。原生桥仅提供限定分类/目录操作，不提供任意JS、SQL或通用删除/合并接口；唯一新增清理操作只针对本项目两个已核实管理分类壳，强制保留全部文献。更新地址使用保留的.invalid域名；插件不后台更新，新版需本机重新构建安装。
+当前桥接0.3.1、CLI 0.2.1，兼容上限`10.0.*`。原生桥仅提供限定分类/目录操作，不提供任意JS、SQL或通用删除/合并接口；清理操作只针对本项目两个已核实管理分类壳，强制保留全部文献；更名操作只接受已绑定的当前项目分类key。更新地址使用保留的.invalid域名；插件不后台更新，新版需本机重新构建安装。
 
 旧工作区插件迁移见[升级说明](references/workflow.md#upgrade--multiple-workspaces-bridge-020)。保留旧token、项目UUID及偏好命名空间，支持经审核的旧endpoint别名；不直接修改Zotero数据库，不删除已有分类。旧fork需在UI中停用/移除，后续不再安装其旧XPI。
 
@@ -78,7 +80,7 @@ python scripts/build_bridge.py --register-only
 
 ```powershell
 & .\.venv\Scripts\python.exe scripts/lit2zotero.py doctor
-& .\.venv\Scripts\python.exe scripts/lit2zotero.py init --project projects/my_paper --claims examples/claims.example.json --collection 'Lit2Zotero · My paper' --backend native --task-mode writing
+& .\.venv\Scripts\python.exe scripts/lit2zotero.py init --project projects/my_paper --claims examples/claims.example.json --collection 'My paper references' --backend native --task-mode writing
 & .\.venv\Scripts\python.exe scripts/lit2zotero.py discover --project projects/my_paper --provider epmc --query 'gene prioritization benchmark' --pages 1
 ```
 
@@ -93,6 +95,8 @@ Word自动化依赖另行安装并连接的 `word_mcp_live` 和兼容的 `zotero
 必须在副本上先运行Word技能的题名匹配，然后使用本仓库 `scripts/prepare_word_mapping.py` 生成配套的mapping-bound文件。所有插入输入都使用新绑定文件。最后以实际ZoteroRefresh、引用URI、书目及非引文内容比较验收，不能以“存在字段代码”代替成功。
 
 ## 测试与已知范围
+
+0.3.1命名更新通过51项Python回归与42项Node模拟检查，新增无前缀中文名称、空值/控制字符拒绝、更名预览/幂等、分类key与成员不变、其他工作区越权拒绝、旧配置同步不恢复旧名。仍需升级插件后的真实更名回查，不把模拟检查当实机验收。
 
 0.3.0任务模式更新通过47项Python回归与35项Node模拟检查：覆盖BioKB全PDF、非写作不分组、旧模式未确认即停止、分类迁移预览/重复执行、条目/附件及无关分类保留、嵌套/改名子分类拒绝操作。模拟测试不是实机迁移验收，安装后应对授权分类回查。
 

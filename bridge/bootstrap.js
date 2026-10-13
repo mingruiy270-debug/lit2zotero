@@ -24,6 +24,10 @@ async function startup({rootURI}) {
  }
  let queue=Promise.resolve();
  const clean=x=>String(x||'').trim();
+ const collectionName=x=>{
+  if(typeof x!=='string'||/[\x00-\x1f\x7f]/.test(x)||!x.trim()||x.trim().length>160)throw Error('Collection name must be 1-160 characters without control characters');
+  return x.trim();
+ };
  const normal=x=>clean(x).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}_]/gu,'');
  const doi=x=>clean(x).replace(/^https?:\/\/(dx\.)?doi.org\//i,'').toLowerCase();
  const escape=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -51,23 +55,30 @@ async function startup({rootURI}) {
   return result;
  }
  async function execute(d,config) {
-  if(d.op==='health')return {version:'0.3.0',zotero:Zotero.version,workspace_id:config.workspace_id,operations:['collection','reading-collections','flatten-reading-collections','upsert','attach','multi-workspace']};
+  if(d.op==='health')return {version:'0.3.1',zotero:Zotero.version,workspace_id:config.workspace_id,operations:['collection','rename-collection','free-collection-names','reading-collections','flatten-reading-collections','upsert','attach','multi-workspace']};
   if (!/^[0-9a-f-]{36}$/.test(d.project_id||'')) throw Error('Invalid project ID');
   const owners=JSON.parse(Zotero.Prefs.get('lit2zotero.projectOwners',true)||'{}');
   if(owners[d.project_id]&&owners[d.project_id]!==config.workspace_id)throw Error('Project belongs to another workspace');
   if(!owners[d.project_id]) {
    if(mappings(config)[d.project_id]&&!(config.legacyProjectIds||[]).includes(d.project_id))throw Error('Legacy project requires reviewed workspace registration');
    if(!mappings(config)[d.project_id]&&d.op!=='collection')throw Error('Project must be registered first');
-   if(d.op==='collection'&&(!clean(d.name).startsWith('Lit2Zotero · ')||d.name.length>160))throw Error('Use the Lit2Zotero · collection prefix');
+   if(d.op==='collection')collectionName(d.name);
    owners[d.project_id]=config.workspace_id;Zotero.Prefs.set('lit2zotero.projectOwners',JSON.stringify(owners),true);
   }
   if(d.op==='collection') {
-   if(!clean(d.name).startsWith('Lit2Zotero · ')||d.name.length>160)throw Error('Use the Lit2Zotero · collection prefix');
+   const name=collectionName(d.name);
    const map=mappings(config);
    if(map[d.project_id]) {const c=Zotero.Collections.getByLibraryAndKey(Zotero.Libraries.userLibraryID,map[d.project_id]);if(!c||c.deleted)throw Error('Existing collection missing');return {key:c.key,name:c.name};}
-   const c=new Zotero.Collection();c.libraryID=Zotero.Libraries.userLibraryID;c.name=d.name;await c.saveTx();map[d.project_id]=c.key;Zotero.Prefs.set(namespace(config)+'.projects',JSON.stringify(map),true);return {key:c.key,name:c.name};
+   const c=new Zotero.Collection();c.libraryID=Zotero.Libraries.userLibraryID;c.name=name;await c.saveTx();map[d.project_id]=c.key;Zotero.Prefs.set(namespace(config)+'.projects',JSON.stringify(map),true);return {key:c.key,name:c.name};
   }
   const c=await scope(d,config);
+  if(d.op==='rename-collection') {
+   const name=collectionName(d.name);
+   if(typeof d.apply!=='boolean')throw Error('Explicit preview/apply required');
+   const result={key:c.key,old_name:c.name,new_name:name,apply:d.apply};
+   if(d.apply&&c.name!==name){c.name=name;await c.saveTx();}
+   return result;
+  }
   if(d.op==='flatten-reading-collections') {
    if(typeof d.apply!=='boolean')throw Error('Explicit preview/apply required');
    const pref=namespace(config)+'.readingCollections';

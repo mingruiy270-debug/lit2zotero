@@ -12,6 +12,24 @@ class Contracts(unittest.TestCase):
  def decision(self,p,**kw):
   d=dict(paper_id=p['paper_id'],decision='include',decision_maker='host_agent',reason='Test fixture',abstract_read=True,evidence=[dict(claim_id='C1',relation='supports',required_depth='fulltext',reason='Test assumptions')]);d.update(kw);return d
  def test_doi(self):self.assertEqual(l.doi('HTTPS://doi.org/10.1234/AbC'),'10.1234/abc')
+ def test_collection_name_no_prefix(self):
+  self.assertEqual(l.collection_name('  Bulk2Flow知识库  '),'Bulk2Flow知识库')
+  self.assertEqual(l.collection_name('项目甲·返修参考'),'项目甲·返修参考')
+ def test_collection_name_invalid(self):
+  for name in ('',' ','bad\nname','bad\x00name','x'*161,123,None):
+   with self.assertRaises(l.ContractError):l.collection_name(name)
+ def test_rename_requires_bound_collection(self):
+  with self.assertRaises(l.ContractError):l.rename_collection(self.p,'项目知识库')
+ def test_rename_preview_and_apply(self):
+  from unittest.mock import patch,Mock
+  self.p.config['collection_key']='TESTKEY1';z=Mock()
+  def bridge(op,**kw):
+   if op=='health':return {'operations':['rename-collection']}
+   return dict(key='TESTKEY1',old_name='Old project',new_name=kw['name'],apply=kw['apply'])
+  z.bridge.side_effect=bridge;z.read.return_value.json.return_value={'data':{'name':'项目知识库'}}
+  with patch.object(l,'client',return_value=z):
+   original=self.p.config['collection_name'];l.rename_collection(self.p,'项目知识库');self.assertEqual(self.p.config['collection_name'],original);z.read.assert_not_called()
+   l.rename_collection(self.p,'项目知识库',True);self.assertEqual(self.p.config['collection_name'],'项目知识库');self.assertEqual(self.p.config['collection_key'],'TESTKEY1')
  def test_invalid_doi(self):
   with self.assertRaises(l.ContractError):l.doi('not a doi')
  def test_duplicate(self):self.paper();self.paper();self.assertEqual(len(self.p.papers),1)

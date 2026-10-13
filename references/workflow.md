@@ -4,6 +4,15 @@ Run from the skill directory. Python 3.12; dependencies in requirements.txt. Rem
 
 ## Inputs
 
+Collection names should directly describe project + purpose, e.g. `Bulk2Flow知识库`. No mandatory tool prefix, UUID or date suffix. Nonempty names up to 160 characters are accepted (no control characters). Native authorization uses workspace/project/key identity, never name matching. Same display names do not cause collection adoption or merging. To rename only an existing registered collection, install/reload bridge 0.3.1 and preview/apply:
+
+```text
+python scripts/lit2zotero.py rename-collection --project <dir> --name "Bulk2Flow知识库"
+python scripts/lit2zotero.py rename-collection --project <dir> --name "Bulk2Flow知识库" --apply
+```
+
+The key, members and attachments are preserved. Normal sync never silently renames a collection. Existing names remain valid; this policy does not authorize bulk renaming other projects.
+
 Select `--task-mode writing|biokb|research` at init (default research). Only an explicit writing task creates the two PDF-need children. BioKB always needs PDFs and uses a flat collection; research is also flat with task-specific reading depth. Non-writing claims.json holds research questions rather than an invented manuscript outline. Inclusion screening is not completed full-text reading.
 
 For a reviewed existing BioKB project, install bridge 0.3.0, then preview and apply:

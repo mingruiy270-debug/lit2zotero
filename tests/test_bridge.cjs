@@ -1,7 +1,7 @@
 /* Contract test, not a substitute for Zotero integration. */
 const vm=require('node:vm'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.dirname(__dirname),token='x'.repeat(40),prefs={},collections=[],items=[];let imports=0;
-class Collection {constructor(){this.id=collections.length+1;this.key='COLL000'+this.id;} async saveTx(){collections.push(this);}async loadDataType(){}getChildCollections(ids){const cs=collections.filter(x=>x.parentID===this.id&&!x.erased);return ids?cs.map(x=>x.id):cs;}getChildItems(ids){const xs=items.filter(x=>x.cols.includes(this.id));return ids?xs.map(x=>x.id):xs;}async erase(options){assert.equal(options.deleteItems,false);this.erased=true;for(const i of items)i.removeFromCollection(this.id);}}
+class Collection {constructor(){this.id=collections.length+1;this.key='COLL000'+this.id;} async saveTx(){if(!collections.includes(this))collections.push(this);}async loadDataType(){}getChildCollections(ids){const cs=collections.filter(x=>x.parentID===this.id&&!x.erased);return ids?cs.map(x=>x.id):cs;}getChildItems(ids){const xs=items.filter(x=>x.cols.includes(this.id));return ids?xs.map(x=>x.id):xs;}async erase(options){assert.equal(options.deleteItems,false);this.erased=true;for(const i of items)i.removeFromCollection(this.id);}}
 class Item {constructor(type){this.type=type;this.id=items.length+1;this.key='ITEM000'+this.id;this.fields={};this.cols=[];}
  setField(k,v){this.fields[k]=v;} getField(k){return this.fields[k]||'';} setCreators(v){this.creators=v;} addToCollection(c){if(!this.cols.includes(c))this.cols.push(c);} removeFromCollection(c){this.cols=this.cols.filter(x=>x!==c);} addTag(){} getCollections(){return this.cols;}isRegularItem(){return this.type==='journalArticle';}setNote(v){this.note=v;}getNote(){return this.note;}getNotes(){return items.filter(x=>x.type==='note'&&x.parentID===this.id).map(x=>x.id);}getAttachments(){return items.filter(x=>x.type==='attachment'&&x.parentID===this.id).map(x=>x.id);}async save(){if(!items.includes(this))items.push(this);}async getFilePathAsync(){return this.path;}}
 class Search {constructor(){this.conditions=[];}addCondition(...a){this.conditions.push(a);}async search(){return items.filter(x=>x.isRegularItem()&&this.conditions.every(([k,op,v])=>k==='deleted'||x.getField(k)===v)).map(x=>x.id);}}
@@ -15,7 +15,7 @@ vm.runInContext(fs.readFileSync(path.join(root,'bridge/bootstrap.js'),'utf8'),co
 async function call(data,headers={}){const r=await endpoint.init({headers:{'X-Lit2Zotero-Token':token,...headers},data});return {status:r[0],body:JSON.parse(r[2])};}
 assert.equal((await call({op:'health'},{Origin:'http://evil.example'})).status,403);checks++;
 assert.equal((await call({op:'health'},{'X-Lit2Zotero-Token':'bad'})).status,403);checks++;
-const project_id='12345678-1234-1234-1234-123456789012';let c=await call({op:'collection',project_id,name:'Lit2Zotero · test'});assert(c.body.ok);checks++;
+const project_id='12345678-1234-1234-1234-123456789012';let c=await call({op:'collection',project_id,name:'研究项目知识库'});assert(c.body.ok);assert.equal(c.body.result.name,'研究项目知识库');checks++;
 const key=c.body.result.key;await call({op:'collection',project_id,name:'Lit2Zotero · test'});assert.equal(collections.length,1);checks++;
 let d={op:'upsert',project_id,collection_key:key,paper_id:'P123456789abc',metadata:{itemType:'journalArticle',title:'Verified test paper',DOI:'10.1234/test',creators:[]},note:'<script>not executable</script>'};let r=await call(d);assert(r.body.ok);const item_key=r.body.result.key;checks++;
 await call(d);assert.equal(items.filter(x=>x.isRegularItem()).length,1);assert.equal(items.filter(x=>x.type==='note').length,1);checks++;
@@ -43,6 +43,14 @@ registry.clients.pop();assert.equal((await call({op:'health'},{'X-Lit2Zotero-Tok
 registry.clients.push({...client});assert.equal((await call({op:'health'})).status,403);registry.clients.pop();checks++;
 assert.equal((await call(null)).status,400);checks++;
 assert.equal((await call({op:'health'},{Origin:''})).status,403);checks++;
+const rename={op:'rename-collection',project_id,collection_key:key,name:'Bulk2Flow知识库',apply:false};
+const oldName=collections[0].name;assert((await call(rename)).body.ok);assert.equal(collections[0].name,oldName);checks++;
+for(const name of ['', '   ', 'x'.repeat(161), 'bad\nname',123]){assert.equal((await call({...rename,name,apply:true})).status,400);assert.equal((await call({op:'collection',project_id,name})).status,400);}checks++;
+assert.equal((await call({...rename,collection_key:'OTHER',apply:true})).status,400);checks++;
+const savedState=JSON.stringify(items);assert((await call({...rename,apply:true})).body.ok);assert.equal(collections[0].name,'Bulk2Flow知识库');assert.equal(collections[0].key,key);assert.equal(JSON.stringify(items),savedState);assert.equal(collections.length,3);checks++;
+assert((await call({...rename,apply:true})).body.ok);assert.equal(collections.length,3);checks++;
+await call({op:'collection',project_id,name:'Lit2Zotero · old config'});assert.equal(collections[0].name,'Bulk2Flow知识库');checks++;
+registry.clients.push(second);assert.equal((await call({...rename,apply:true},{'X-Lit2Zotero-Token':second.token})).status,400);registry.clients.pop();checks++;
 const flatten={op:'flatten-reading-collections',project_id,collection_key:key,apply:false};
 assert.equal((await call({...flatten,collection_key:'OTHER'})).status,400);checks++;
 const preview=await call(flatten);assert(preview.body.ok);assert.equal(preview.body.result.removed_collection_keys.length,2);assert(!required.erased);checks++;

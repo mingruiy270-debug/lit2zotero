@@ -9,6 +9,8 @@ Use the project-local `.venv/Scripts/python.exe scripts/lit2zotero.py`. Keep pro
 
 ## Select the actual task first
 
+**Collection names are human-facing project + purpose labels**, e.g. `Bulk2Flow知识库` or `Project A revision references`. Do not prepend `Lit2Zotero ·`, UUIDs or dates by default. Respect the user's chosen name. Names are not authorization boundaries: credentials, project IDs and bound collection keys provide isolation. Do not adopt or merge a same-named collection. Preserve existing names unless renaming is requested; use scoped `rename-collection` preview/apply (bridge 0.3.1+) without recreating the collection.
+
 - `writing`: only when the user explicitly asks for manuscript writing, revision, or citation preparation. This mode alone creates 需要PDF / 不需要PDF subcollections based on intended citation uses.
 - `biokb`: collecting papers for a knowledge base or later deep reading. Every included paper needs a PDF; keep one collection without PDF-need children. Missing PDF means pending acquisition, not exclusion or reduced reading depth. Respect download effort limits; no automatic paid digest/sync.
 - `research`: general discovery or study design (default). Do not infer writing merely because a project may later produce a paper. No PDF-need children; reading depth is task-specific.
@@ -61,7 +63,7 @@ For an existing project, reclassification requires an explicit agent review of t
 ```powershell
 $py = '.\.venv\Scripts\python.exe'
 & $py scripts/lit2zotero.py doctor
-& $py scripts/lit2zotero.py init --project projects/my_revision --claims claims.json --collection 'Lit2Zotero · My revision' --backend native --task-mode writing
+& $py scripts/lit2zotero.py init --project projects/my_revision --claims claims.json --collection 'My project revision references' --backend native --task-mode writing
 & $py scripts/lit2zotero.py discover --project projects/my_revision --query 'your PubMed-style query' --pages 2
 ```
 

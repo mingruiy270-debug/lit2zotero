@@ -7,9 +7,14 @@ from urllib.parse import urlparse, quote
 import requests
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.2.0'
+VERSION = '0.2.1'
 
 class ContractError(ValueError): pass
+
+def collection_name(value):
+    if not isinstance(value,str) or re.search(r'[\x00-\x1f\x7f]',value) or not 1<=len(value.strip())<=160:
+        raise ContractError('Collection name must be 1-160 characters without control characters')
+    return value.strip()
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def norm(s): return ' '.join(str(s).casefold().split())
@@ -207,8 +212,7 @@ class ExistingWriter(Zotero):
     def bridge(self,op,**a):
         state=ROOT/'private/existing-collections.json';mapping=load(state) if state.exists() else {};project=a.get('project_id');identity=self.base+'|'+str(project)
         if op=='collection':
-            name=a['name']+' ['+project[:8]+']'
-            if not name.startswith('Lit2Zotero · '):raise ContractError('Managed collection prefix required')
+            name=collection_name(a['name'])
             matches=[];start=0
             while True:
                 part=self.read('/api/users/0/collections?limit=100&start='+str(start)).json();matches.extend(c for c in part if c['data']['name']==name)
@@ -322,6 +326,20 @@ def set_mode(project,mode,reason,apply=False):
         write_json(project.path/'project.json',project.config);project.event('task_mode_changed',**result);export_reading_queue(project)
     return result
 
+def rename_collection(project,name,apply=False):
+    name=collection_name(name);key=project.config.get('collection_key')
+    if not key:raise ContractError('Sync this project first; rename only an already bound collection')
+    z=client(project)
+    if 'rename-collection' not in z.bridge('health').get('operations',[]):raise ContractError('Install and reload bridge 0.3.1 for scoped collection rename')
+    result=z.bridge('rename-collection',project_id=project.config['project_id'],collection_key=key,name=name,apply=apply)
+    if result.get('key')!=key or result.get('new_name')!=name:raise ContractError('Rename response identity mismatch')
+    if apply:
+        saved=z.read('/api/users/0/collections/'+key).json()['data']
+        if saved['name']!=name:raise ContractError('Rename readback mismatch')
+        project.config['collection_name']=name;write_json(project.path/'project.json',project.config)
+        project.event('collection_renamed',**result)
+    return result
+
 def handoff(project):
     if task_mode(project)!='writing':raise ContractError('Citation handoff is for explicit writing tasks only')
     z=client(project);rows=[]
@@ -342,6 +360,7 @@ def main(argv=None):
     a=argparse.ArgumentParser();a.add_argument('--version',action='version',version=VERSION);s=a.add_subparsers(dest='cmd',required=True)
     x=s.add_parser('init');x.add_argument('--project',required=True);x.add_argument('--claims',required=True);x.add_argument('--collection',required=True);x.add_argument('--zotero-base',default='http://127.0.0.1:23119');x.add_argument('--backend',choices=['native','existing'],default='native')
     x.add_argument('--task-mode',choices=['writing','biokb','research'],default='research')
+    x=s.add_parser('rename-collection');x.add_argument('--project',required=True);x.add_argument('--name',required=True);x.add_argument('--apply',action='store_true')
     x=s.add_parser('set-mode');x.add_argument('--project',required=True);x.add_argument('--task-mode',choices=['writing','biokb','research'],required=True);x.add_argument('--reason',required=True);x.add_argument('--apply',action='store_true')
     x=s.add_parser('doctor');x.add_argument('--zotero-base',default='http://127.0.0.1:23119')
     for name in ['discover','decide','resolve','attach','read','sync','handoff','bind']:
@@ -356,6 +375,7 @@ def main(argv=None):
     if args.cmd=='doctor':
         z=Zotero(args.zotero_base);r=z.read('/api/');return {'python':sys.version.split()[0],'zotero_version':r.headers.get('X-Zotero-Version'),'read_status':r.status_code,'write_status':'not_tested','hashes_computed':False}
     if args.cmd=='init':
+        args.collection=collection_name(args.collection)
         p=Path(args.project).resolve()
         if not p.is_relative_to(ROOT):raise ContractError('Project output must remain inside this skill workspace')
         if p.exists() and any(p.iterdir()):raise ContractError('Project output must be empty')
@@ -365,6 +385,7 @@ def main(argv=None):
             if not all(c.get(k) for k in ['claim_id','section_id','claim_text','citation_anchor']) or c.get('required_depth') not in ('abstract','fulltext'):raise ContractError('Invalid claim contract')
         p.mkdir(parents=True,exist_ok=True);write_json(p/'claims.json',claims);write_json(p/'project.json',dict(project_id=str(uuid.uuid4()),collection_name=args.collection,zotero_base=args.zotero_base,backend=args.backend,version=VERSION,task_mode=args.task_mode));return {'project':str(p)}
     p=Project(args.project)
+    if args.cmd=='rename-collection':return rename_collection(p,args.name,args.apply)
     if args.cmd=='set-mode':return set_mode(p,args.task_mode,args.reason,args.apply)
     if args.cmd=='bind':
         paper=p.get(args.paper_id);obj=client(p).read('/api/users/0/items/'+args.item_key).json();d=obj['data']

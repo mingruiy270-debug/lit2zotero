@@ -32,11 +32,25 @@ Reading JSON: `{paper_id, decision_maker:"host_agent", summary, locators:[{pdf_p
 
 ## Local writer choice
 
-- `native`: install `dist/lit2zotero-local.xpi` via Zotero Tools → Plugins → Install from File. Package/source/config all remain here. `private/bridge.json` holds the local token; do not print or publish. Native operations are limited to this project's prefixed collection and PDF paths under the configured allowedRoot. The server rejects browser Origin/Referer and wrong tokens.
+- `native`: install one `dist/lit2zotero-local.xpi` per Zotero profile via Tools → Plugins → Install from File. `private/bridge.json` holds each workspace's token/root/UUID; do not print or publish. On the Zotero host, the shared registry is `%LOCALAPPDATA%/Lit2Zotero/clients.json` (Windows), or `~/.config/lit2zotero/clients.json` (Unix). Native operations are limited to the authenticated workspace's projects and PDF root. The server rejects browser Origin/Referer and wrong tokens.
 - `existing`: historical metadata-only compatibility adapter. New sync rejects it because it cannot satisfy the two reading-subcollection contract. Use native bridge 0.1.2 or newer.
 - No cloud writer is configured. No arbitrary JavaScript or SQL interface is exposed by this skill.
 
-Build the native XPI with scripts/build_bridge.py. This creates local credentials and an allowed directory under the current checkout; it does not edit any Zotero profile or install automatically. Install the generated XPI through Zotero's plugin manager. The XPI includes machine-specific settings and must not be redistributed.
+Build the native XPI with scripts/build_bridge.py using the Zotero host's native Python. For Windows Zotero accessed from WSL, run Windows Python with UNC paths, not Linux Python and Linux-only paths. `--registry` can select an explicit host-readable shared registry; all workspaces served by one plugin must use that same registry. The builder preserves existing tokens, atomically registers a workspace, and rejects copied identities and concurrent registration; never delete a lock without checking the originating process. It does not edit any Zotero profile or install automatically. The XPI contains only a registry location, not tokens; it is still machine-specific and must not be redistributed.
+
+### Upgrade / multiple workspaces (bridge 0.2.0)
+
+One fixed plugin ID `lit2zotero@local.invalid` serves all registered workspaces. Do not create per-workspace plugin names/IDs. Register subsequent normal workspaces with the same builder/registry; the running plugin reads clients on each request, so ordinary additions need no reinstall. Changing bridge source requires rebuilding/reinstalling the one canonical plugin. Every request is authenticated separately; project ownership and PDF roots remain scoped. Stop/revoke a workspace by reviewing and removing only its registry entry while no builder runs; do not delete its literature.
+
+For an old fork with a different preference namespace and endpoint, first inspect its bootstrap.js and client code; never infer these values from its display name. From the NEW canonical checkout, register the OLD root without replacing its code or tokens:
+
+```text
+python scripts/build_bridge.py --workspace <old-root> --register-only --legacy-namespace lit2zotero.ggq --legacy-endpoint /lit2zotero-ggq/v1
+```
+
+Those namespace/endpoint values are examples, not universal defaults. The new plugin reuses the recorded legacy preference namespace; it does not merge or clear preferences. Existing project UUIDs under `projects/**/project.json` are registered for legacy ownership adoption. Projects stored elsewhere require explicit migration review before writes; never silently recreate collections. Copied project IDs across roots are refused. Disable/remove old fork plugins using Zotero's UI, then install/restart the ONE canonical plugin. Legacy aliases are registered at startup, so newly adding an alias requires restarting/reloading the canonical plugin; normal new clients using the default endpoint do not.
+
+Do not rebuild/reinstall a legacy fork after migration; keep its source only as history and route later updates through the canonical checkout. An occupied endpoint aborts startup instead of overwriting another plugin; shutdown deletes only endpoints still owned by this instance. If a fork is still active, stop and resolve it in the UI. Test authenticated health for each workspace, rejected wrong tokens, and project/root isolation before doing real imports. Unit mocks do not establish real Zotero compatibility or successful bibliography writes.
 
 ## OA behavior and limits
 

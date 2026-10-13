@@ -30,5 +30,6 @@
 !/tests/test_bridge.cjs
 !/tests/test_native_web.py
 !/tests/test_pdf_queue.py
+!/tests/live_registration_smoke.py
 __pycache__/
 *.pyc

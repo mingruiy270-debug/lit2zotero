@@ -6,7 +6,10 @@ class Item {constructor(type){this.type=type;this.id=items.length+1;this.key='IT
  setField(k,v){this.fields[k]=v;} getField(k){return this.fields[k]||'';} setCreators(v){this.creators=v;} addToCollection(c){if(!this.cols.includes(c))this.cols.push(c);} removeFromCollection(c){this.cols=this.cols.filter(x=>x!==c);} addTag(){} getCollections(){return this.cols;}isRegularItem(){return this.type==='journalArticle';}setNote(v){this.note=v;}getNote(){return this.note;}getNotes(){return items.filter(x=>x.type==='note'&&x.parentID===this.id).map(x=>x.id);}getAttachments(){return items.filter(x=>x.type==='attachment'&&x.parentID===this.id).map(x=>x.id);}async save(){if(!items.includes(this))items.push(this);}async getFilePathAsync(){return this.path;}}
 class Search {constructor(){this.conditions=[];}addCondition(...a){this.conditions.push(a);}async search(){return items.filter(x=>x.isRegularItem()&&this.conditions.every(([k,op,v])=>k==='deleted'||x.getField(k)===v)).map(x=>x.id);}}
 const Z={initializationPromise:Promise.resolve(),version:'MOCK',Server:{Endpoints:{}},Prefs:{get:k=>prefs[k],set:(k,v)=>prefs[k]=v},Libraries:{userLibraryID:1},Users:{getCurrentUserID:()=>123},URI:{getItemURI:x=>'http://zotero.org/users/123/items/'+x.key},Collection,Item,Search,Collections:{getByLibraryAndKey:(l,k)=>collections.find(x=>x.key===k)},Items:{getAsync:async ids=>ids.map(id=>items.find(x=>x.id===id)),getByLibraryAndKey:(l,k)=>items.find(x=>x.key===k)},DB:{executeTransaction:async f=>f()},File:{pathToFile:p=>({path:p,leafName:path.basename(p),fileSize:20,normalize(){},contains(f){return f.path.startsWith('/allowed/')},isFile:()=>true})},Attachments:{importFromFile:async o=>{imports++;const a=new Item('attachment');a.parentID=o.parentItemID;a.path=o.file;a.setField('title',o.title);await a.save();return a;}}};
-const context=vm.createContext({Zotero:Z,fetch:async()=>({json:async()=>({token,allowedRoot:'/allowed'})}),IOUtils:{read:async()=>Buffer.from('%PDF-'),exists:async()=>true},TextDecoder});
+const client={token,allowedRoot:'/allowed',workspace_id:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',legacyProjectIds:[]};
+const registry={schema_version:1,clients:[client,{token:'z'.repeat(40),allowedRoot:'/legacy',workspace_id:'cccccccc-cccc-4ccc-cccc-cccccccccccc',prefNamespace:'lit2zotero.ggq',endpoint:'/lit2zotero-ggq/v1',legacyProjectIds:['eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee']}]};
+const makeContext=()=>vm.createContext({Zotero:Z,fetch:async()=>({json:async()=>({schema_version:1,registryPath:'/registry.json'})}),IOUtils:{read:async p=>Buffer.from(p==='/registry.json'?JSON.stringify(registry):'%PDF-'),exists:async()=>true},TextDecoder});
+const context=makeContext();
 vm.runInContext(fs.readFileSync(path.join(root,'bridge/bootstrap.js'),'utf8'),context);
 (async()=>{await context.startup({rootURI:'file:///test/'});const endpoint=new Z.Server.Endpoints['/lit2zotero/v1']();let checks=0;
 async function call(data,headers={}){const r=await endpoint.init({headers:{'X-Lit2Zotero-Token':token,...headers},data});return {status:r[0],body:JSON.parse(r[2])};}
@@ -27,5 +30,22 @@ assert((await call({...d,pdf_requirement:'required'})).body.ok);const required=c
 assert((await call({...d,pdf_requirement:'not_required'})).body.ok);assert(!current.cols.includes(required.id));assert(current.cols.includes(optional.id));assert(current.cols.includes(999));assert(current.cols.includes(collections[0].id));checks++;
 assert.equal((await call({...d,pdf_requirement:'unknown'})).status,400);checks++;
 assert.equal((await call({op:'eval',project_id,collection_key:key,code:'bad'})).status,400);checks++;
-context.shutdown();assert(!Z.Server.Endpoints['/lit2zotero/v1']);checks++;
+assert(Z.Server.Endpoints['/lit2zotero-ggq/v1']);checks++;
+prefs['lit2zotero.ggq.projects']=JSON.stringify({'eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee':key});
+const legacy=await call({op:'collection',project_id:'eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee',name:'Lit2Zotero · legacy'},{'X-Lit2Zotero-Token':'z'.repeat(40)});
+assert.equal(legacy.body.result.key,key);assert.equal(collections.length,3);checks++;
+const second={token:'y'.repeat(40),allowedRoot:'/second',workspace_id:'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',legacyProjectIds:[]};
+registry.clients.push(second);
+assert((await call({op:'health'},{'X-Lit2Zotero-Token':second.token})).body.ok);checks++;
+assert.equal((await call({...d},{'X-Lit2Zotero-Token':second.token})).status,400);checks++;
+assert.equal((await call({op:'collection',project_id,name:'Lit2Zotero · hijack'},{'X-Lit2Zotero-Token':second.token})).status,400);checks++;
+registry.clients.pop();assert.equal((await call({op:'health'},{'X-Lit2Zotero-Token':second.token})).status,403);checks++;
+registry.clients.push({...client});assert.equal((await call({op:'health'})).status,403);registry.clients.pop();checks++;
+assert.equal((await call(null)).status,400);checks++;
+assert.equal((await call({op:'health'},{Origin:''})).status,403);checks++;
+const fork=makeContext();vm.runInContext(fs.readFileSync(path.join(root,'bridge/bootstrap.js'),'utf8'),fork);
+await assert.rejects(()=>fork.startup({rootURI:'file:///test/'}),/Another Lit2Zotero/);fork.shutdown();assert(Z.Server.Endpoints['/lit2zotero/v1']);checks++;
+const owned=Z.Server.Endpoints['/lit2zotero/v1'];const foreign=function(){};
+Z.Server.Endpoints['/lit2zotero/v1']=foreign;context.shutdown();assert.equal(Z.Server.Endpoints['/lit2zotero/v1'],foreign);checks++;
+delete Z.Server.Endpoints['/lit2zotero/v1'];await context.startup({rootURI:'file:///test/'});context.shutdown();assert(!Z.Server.Endpoints['/lit2zotero/v1']);checks++;
 console.log(JSON.stringify({mock_bridge_checks:checks,passed:true,real_zotero:false}));})().catch(e=>{console.error(e);process.exit(1);});

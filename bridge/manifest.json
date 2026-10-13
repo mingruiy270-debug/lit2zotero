@@ -1,13 +1,13 @@
 {
   "manifest_version": 2,
   "name": "Lit2Zotero Local Bridge",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Scoped local literature imports; no arbitrary code execution.",
   "applications": {
     "zotero": {
       "id": "lit2zotero@local.invalid",
       "strict_min_version": "9.0",
-      "strict_max_version": "9.*",
+      "strict_max_version": "10.0.*",
       "update_url": "https://lit2zotero.invalid/updates.json"
     }
   }

@@ -28,7 +28,7 @@
 
 ## 环境与安装
 
-实际小批验收环境为Windows、Python 3.12、Zotero 9.0.6及Microsoft Word Desktop。其他系统与Zotero版本未完成完整链验收。
+历史小批验收环境为Windows、Python 3.12、Zotero 9.0.6及Microsoft Word Desktop。0.2.0针对Zotero 10.0更新兼容声明并支持单插件多工作区；单元测试不等于真实Zotero/Word完整链验收。正式使用前在自己的客户端完成health及授权试点。
 
 ```powershell
 git clone https://github.com/mingruiy270-debug/lit2zotero.git
@@ -42,11 +42,27 @@ $env:PIP_CACHE_DIR = Join-Path $env:TEMP 'pip'
 & .\.venv\Scripts\python.exe scripts/build_bridge.py
 ```
 
-在Zotero“工具→插件→从文件安装”中选择生成的 `dist/lit2zotero-local.xpi`。开启Zotero允许本机其他应用通信的选项。此XPI包含随机本机凭证和目录范围，**只能本机使用，不能上传或转发**。不要删除已有private配置后继续使用旧XPI；两端凭证需要一致。
+在Zotero“工具→插件→从文件安装”中选择生成的 `dist/lit2zotero-local.xpi`。开启Zotero允许本机其他应用通信的选项。**每个Zotero profile只安装一个Local Bridge**，不要为不同工作区改插件ID。每个工作区运行构建器注册自己的凭据与目录范围，XPI只引用共享registry的位置，**只能本机使用，不能上传或转发**。Windows registry位于`%LOCALAPPDATA%/Lit2Zotero/clients.json`；令牌保留在各工作区private配置及此文件，不互相覆盖。WSL调用Windows Zotero时用Windows Python构建。
 
-桥接版本为0.1.2，CLI为0.1.1。原生桥只提供限定分类和目录的操作，不提供任意JavaScript、数据库SQL、合并或删除接口。更新地址使用保留的.invalid域名以满足Zotero清单要求，插件关闭自己的后台更新；新版本通过本地重新构建和安装，不提供远程自动更新服务。
+桥接版本为0.2.0，CLI为0.1.1。兼容声明上限为`10.0.*`，不是无边界的未来版本通配。原生桥只提供限定分类和目录的操作，不提供任意JavaScript、数据库SQL、合并或删除接口。更新地址使用保留的.invalid域名以满足Zotero清单要求，插件关闭自己的后台更新；新版本通过本地重新构建和安装，不提供远程自动更新服务。
+
+旧工作区插件迁移见[升级说明](references/workflow.md#upgrade--multiple-workspaces-bridge-020)。保留旧token、项目UUID及偏好命名空间，支持经审核的旧endpoint别名；不直接修改Zotero数据库，不删除已有分类。旧fork需在UI中停用/移除，后续不再安装其旧XPI。
 
 ## 开始一个项目
+
+### 以后添加新的工作区
+
+本桥接不限制为某几个工作区。每个新工作区安装本skill后，用**Zotero所在系统的Python**运行：
+
+```text
+python scripts/build_bridge.py --register-only
+```
+
+这会为新工作区生成独立凭据/UUID并登记到当前用户共享registry。**不重装XPI、不改插件ID、正常情况下不重启Zotero**。运行中的插件逐请求读取registry；不得从旧工作区复制`private/bridge.json`，也不要将allowedRoot扩大到整个硬盘。这里只适用于同一用户/主机及同一registry；更换电脑或Zotero profile需要相应安装与配置。首次安装插件仍使用不带`--register-only`的构建命令。添加旧fork的特殊endpoint别名才需要一次重载插件。
+
+2026-10-13在Windows Zotero 10.0.6上验证：三个既有工作区的health均返回0.2.0及各自身份；额外临时工作区在插件运行中注册即可连接，无需重装/重启；错误token及浏览器Origin被拒绝，撤销临时注册后立即拒绝访问。该测试没有文献写入，不能替代真实导入/Word Refresh端到端验收。
+
+上述实机动态注册测试可显式运行`python tests/live_registration_smoke.py`。它临时增加并移除一个测试client，只调用health，不处理文献；不是默认单元测试的一部分。
 
 让宿主agent读取本仓库[SKILL.md](SKILL.md)，根据实际大纲填写claims。复制[示例结构](examples/claims.example.json)后改成真实命题。
 
@@ -69,12 +85,11 @@ Word自动化依赖另行安装并连接的 `word_mcp_live` 和兼容的 `zotero
 ## 测试与已知范围
 
 ```powershell
-& .\.venv\Scripts\python.exe scripts/build_bridge.py
 & .\.venv\Scripts\python.exe -m unittest discover -s tests -p 'test_*.py'
 node tests/test_bridge.cjs
 ```
 
-当前通用回归为36项Python测试和17项Node模拟检查。实际本地试点另外完成8篇书目、1份真实PDF附件、两次同步，以及4篇文献／4个Word引用字段／5次引用／4条书目的Refresh和格式对照。个人库结果和测试文档不随仓库发布，使用者仍需在自己的环境中实测。
+0.2.0通用回归为42项Python测试和28项Node模拟检查，覆盖多工作区注册、凭据保留、项目隔离、旧映射复用、endpoint冲突及退出清理。构建测试只使用临时registry，不修改真实注册表。历史0.1.x本地试点另外完成8篇书目、1份真实PDF附件、两次同步，以及4篇文献／4个Word引用字段／5次引用／4条书目的Refresh和格式对照；这些不是0.2.0在Zotero10上的实测结果。个人库结果和测试文档不随仓库发布，使用者仍需在自己的环境中实测。
 
 测试机存在Word首次启动VBA 424的环境警告，责任加载项尚未定位，用户选择暂缓处理。结束该错误后功能测试通过；本项目不声称已经解决该错误，也不保证所有Word加载项组合均可无人值守运行。
 
